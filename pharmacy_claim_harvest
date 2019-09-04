@@ -1,0 +1,1316 @@
+import pandas as pd
+import odbc as dc
+import os.path
+
+##Connection to Pharm
+conn=dc.odbc('ODBC/USERNAME/PASSWORD')
+conn2=dc.odbc('ODBC2/USERNAME/PASSWORD')
+##Carriers for output and loop
+carriers = ['8302','8303','8304','8305','8306','8307','8309','8310','8311','8312','8313','8314','8315','8308','8317','8318']
+##Assign list length value for carriers in loop
+list_length = len(carriers)
+list_length = list_length - 1
+print(list_length)
+##create cursors for SQL Execution
+cursor=conn.cursor()
+cursor1=conn2.cursor()
+cursor2=conn2.cursor()
+##obtain NPIDs to confirm CVS Pricing Compliance
+NPID=cursor2.execute("""select distinct d.ClientGroupNumber++d.RetailNPP as NPID_KEY
+,cd.FundingTypeCode
+,d.RecordType
+,d.NetworkProductID
+from PEGA_DATA.inge_pricing_data_cagprice d
+inner join IPS1P.PEGA_DATA.inge_pricing_data_cagdecision cd
+on cd.CAGRefKey = d.CAGRefKey
+where d.Status = 'A'
+and d.RecordType = 'A'
+
+union
+
+select distinct cp.[ClientGroupNumber] ++ sc.NPP4 as "Generated Retail NPP" 
+,"two".[fundingtypecode]
+,cp.[recordtype]
+,cp.[networkproductid]
+from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey1 = ss1.pzInsKey
+  where cp.Status = 'A' 
+  and cp.recordtype= 'C'
+
+union
+
+select distinct d.ClientGroupNumber++d.MailNPP
+,cd.FundingTypeCode
+,d.RecordType
+,d.NetworkProductID
+from PEGA_DATA.inge_pricing_data_cagprice d
+inner join IPS1P.PEGA_DATA.inge_pricing_data_cagdecision cd
+on cd.CAGRefKey = d.CAGRefKey
+where d.Status = 'A'
+and d.RecordType = 'A'
+
+union
+
+select distinct cp.[ClientGroupNumber] ++ sc.NPP5 as "Generated Mail NPP"
+,"two".[fundingtypecode]
+,cp.[recordtype]
+,cp.[networkproductid]
+from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey1 = ss1.pzInsKey
+  where cp.Status = 'A' 
+  and cp.recordtype= 'C'
+union
+
+select distinct d.ClientGroupNumber++d.XPP
+,cd.FundingTypeCode
+,d.RecordType
+,d.NetworkProductID
+from PEGA_DATA.inge_pricing_data_cagprice d
+inner join IPS1P.PEGA_DATA.inge_pricing_data_cagdecision cd
+on cd.CAGRefKey = d.CAGRefKey
+where d.Status = 'A'
+and d.RecordType = 'A'
+
+union
+
+select distinct cp.[ClientGroupNumber] ++ sc.NPP6 as "Generated Specialty XPP"
+,"two".[fundingtypecode]
+,cp.[recordtype]
+,cp.[networkproductid]
+from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey1 = ss1.pzInsKey
+  where cp.Status = 'A' 
+  and cp.recordtype= 'C'
+  
+  order by recordtype desc""")
+npid_final = cursor2.fetchall()
+column_names3 = [i[0] for i in cursor2.description]
+npiddf=pd.DataFrame(npid_final,columns=column_names3,dtype=str )
+npiddf.to_csv('C:/Users/ag06050/Documents/CLMFLS/npid.txt',sep='\t',index=False)
+
+ipsrates=cursor1.execute("""--Brand Non Specialty Rates and Dispensing Fees
+with pricing as(SELECT distinct
+"product"."Product" AS "Product" 
+,CASE WHEN "product"."Product" = 'S90' THEN 'M' ELSE "SELL"."CHANNEL" END AS "Channel" 
+, "npp"."NPP" AS "NPP"
+, CASE WHEN "SELL"."CHANNEL" = 'R' THEN cast("npp"."NPP" as varchar) ++ cast("product"."Product" as varchar)++'B'++'N'
+when "sell"."channel" ='M' then cast("npp"."NPP" as varchar)++'B'++'N'
+ELSE "npp"."NPP" end as key_lookup
+, "sell"."MACList" AS "MACList" 
+,"sell"."BrandAWPRate" AS "AWPRate"
+,"sell"."BrandDispensingFees" AS "DispensingFees"
+FROM IPS1P.PEGA_DATA.inge_pricing_data_priceschedule_product "PC0" 
+   INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_priceschedule_sell "sell" 
+    ON ( "PC0"."SellPriceRefKey" = "sell"."pzInsKey" ) 
+  INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_npidnpp "npp" 
+    ON ( "PC0"."NPPRefKey" = "npp"."pzInsKey") 
+  INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_networkproductmeta "product" 
+    ON ("PC0"."NetworkProductRefKey" = "product"."pzInsKey") 
+  LEFT OUTER JOIN IPS1P.PEGA_DATA.inge_pricing_data_networkproduct "npid" 
+    ON ("product"."NetworkProductID" = "npid"."NetworkProductID")
+	where PC0.Status ='A'  
+  and right(left("npp"."NPP",10),1) <> 'T'
+  and right("npp"."NPP",4) <> 'TEMP'
+
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'B'++'N'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'B'++'N'
+        end as key_lookup
+      ,ss1.[MACListID]
+      ,ss1.[AdjudicatedBrandAWP]
+      ,ss1.[AdjudicatedBrandDispensingFees]
+      from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey1 = ss1.pzInsKey
+  where cp.Status = 'A'
+
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'B'++'N'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'B'++'N'
+        end as key_lookup
+      ,ss1.[MACListID]
+      ,ss1.[AdjudicatedBrandAWP]
+      ,ss1.[AdjudicatedBrandDispensingFees]
+      from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey2 = ss1.pzInsKey
+  where cp.Status = 'A'
+
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'B'++'N'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'B'++'N'
+        end as key_lookup
+      ,ss1.[MACListID]
+      ,ss1.[AdjudicatedBrandAWP]
+      ,ss1.[AdjudicatedBrandDispensingFees]
+      from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey3 = ss1.pzInsKey
+  where cp.Status = 'A'
+
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'B'++'N'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'B'++'N'
+        end as key_lookup
+      ,ss1.[MACListID]
+      ,ss1.[AdjudicatedBrandAWP]
+      ,ss1.[AdjudicatedBrandDispensingFees]
+      from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey4 = ss1.pzInsKey
+  where cp.Status = 'A'
+
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'B'++'N'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'B'++'N'
+        end as key_lookup
+      ,ss1.[MACListID]
+      ,ss1.[AdjudicatedBrandAWP]
+      ,ss1.[AdjudicatedBrandDispensingFees]
+      from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey5 = ss1.pzInsKey
+  where cp.Status = 'A'
+
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'B'++'N'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'B'++'N'
+        end as key_lookup
+      ,ss1.[MACListID]
+      ,ss1.[AdjudicatedBrandAWP]
+      ,ss1.[AdjudicatedBrandDispensingFees]
+      from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey6 = ss1.pzInsKey
+  where cp.Status = 'A'
+
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'B'++'N'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'B'++'N'
+        end as key_lookup
+      ,ss1.[MACListID]
+      ,ss1.[AdjudicatedBrandAWP]
+      ,ss1.[AdjudicatedBrandDispensingFees]
+      from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey8 = ss1.pzInsKey
+  where cp.Status = 'A'
+
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'B'++'N'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'B'++'N'
+        end as key_lookup
+      ,ss1.[MACListID]
+      ,ss1.[AdjudicatedBrandAWP]
+      ,ss1.[AdjudicatedBrandDispensingFees]
+      from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey9 = ss1.pzInsKey
+  where cp.Status = 'A'
+
+union all
+  
+  SELECT distinct
+"product"."Product" AS "Product" 
+,"buy"."Channel" AS "Channel" 
+, "npp"."NPP" AS "NPP" 
+,case when "buy"."channel" = 'R' then "npp"."NPP" ++ "product"."Product"++'B'++'N'
+when "buy"."channel" = 'M' then "npp"."npp"++'B'++'N'
+else "npp"."NPP" end as key_column
+,case when "buy"."channel" is not null then 'buy=sell'
+else 'buy=sell' end as MacList
+,"buy"."NetEffectiveBrandRate" AS "NetEffectiveBrandRate"
+,"buy"."BrandDispensingFees" AS "BrandDispensingFees"
+
+FROM IPS1P.PEGA_DATA.inge_pricing_data_priceschedule_product "PC0" 
+  INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_priceschedule_buy "buy" 
+    ON ( "PC0"."BuyPriceRefKey" = "buy"."pzInsKey") 
+  INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_npidnpp "npp" 
+    ON ( "PC0"."NPPRefKey" = "npp"."pzInsKey") 
+  INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_networkproductmeta "product" 
+    ON ("PC0"."NetworkProductRefKey" = "product"."pzInsKey") 
+  LEFT OUTER JOIN IPS1P.PEGA_DATA.inge_pricing_data_networkproduct "npid" 
+    ON ("product"."NetworkProductID" = "npid"."NetworkProductID")
+	where PC0.Status ='A'  
+  and right(left("npp"."NPP",10),1) <> 'T'
+  and right("npp"."NPP",4) <> 'TEMP'
+union all
+
+--Brand Specialty Rates
+
+SELECT distinct
+"product"."Product" AS "Product" 
+,CASE WHEN "product"."Product" = 'S90' THEN 'M' ELSE "SELL"."CHANNEL" END AS "Channel" 
+, "npp"."NPP" AS "NPP"
+, CASE WHEN "SELL"."CHANNEL" = 'R' THEN cast("npp"."NPP" as varchar) ++ cast("product"."Product" as varchar)++'B'++'Y'
+WHEN "SELL"."CHANNEL" = 'M' THEN cast("npp"."NPP" as varchar)++'B'++'Y'
+ELSE "npp"."NPP" end as key_lookup
+,"sell"."SpecialtyMACList" AS "SpecialtyMACList" 
+,"sell"."SpecialtyBrandAWPRate" AS "SpecialtyBrandAWPRate"
+,"sell"."SpecialtyBrandDispensingFees" AS "SpecialtyBrandDispensingFees"
+FROM IPS1P.PEGA_DATA.inge_pricing_data_priceschedule_product "PC0" 
+   INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_priceschedule_sell "sell" 
+    ON ( "PC0"."SellPriceRefKey" = "sell"."pzInsKey" ) 
+  INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_npidnpp "npp" 
+    ON ( "PC0"."NPPRefKey" = "npp"."pzInsKey") 
+  INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_networkproductmeta "product" 
+    ON ("PC0"."NetworkProductRefKey" = "product"."pzInsKey") 
+  LEFT OUTER JOIN IPS1P.PEGA_DATA.inge_pricing_data_networkproduct "npid" 
+    ON ("product"."NetworkProductID" = "npid"."NetworkProductID")
+	where PC0.Status ='A'  
+  and right(left("npp"."NPP",10),1) <> 'T'
+  and right("npp"."NPP",4) <> 'TEMP'
+
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'B'++'Y'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'B'++'Y'
+        end as key_lookup
+      ,ss1.[SpecialtyMACListID]
+      ,ss1.[AdjudicatedSpecialtyBrandAWP]
+      ,ss1.[AdjudicatedSpecialtyBrandDispensingFees]
+      from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey1 = ss1.pzInsKey
+  where cp.Status = 'A'
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'B'++'Y'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'B'++'Y'
+        end as key_lookup
+      ,ss1.[SpecialtyMACListID]
+      ,ss1.[AdjudicatedSpecialtyBrandAWP]
+      ,ss1.[AdjudicatedSpecialtyBrandDispensingFees]
+      from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey2 = ss1.pzInsKey
+  where cp.Status = 'A'
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'B'++'Y'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'B'++'Y'
+        end as key_lookup
+      ,ss1.[SpecialtyMACListID]
+      ,ss1.[AdjudicatedSpecialtyBrandAWP]
+      ,ss1.[AdjudicatedSpecialtyBrandDispensingFees]
+      from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey3 = ss1.pzInsKey
+  where cp.Status = 'A'
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'B'++'Y'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'B'++'Y'
+        end as key_lookup
+      ,ss1.[SpecialtyMACListID]
+      ,ss1.[AdjudicatedSpecialtyBrandAWP]
+      ,ss1.[AdjudicatedSpecialtyBrandDispensingFees]
+      from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey4 = ss1.pzInsKey
+  where cp.Status = 'A'
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'B'++'Y'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'B'++'Y'
+        end as key_lookup
+      ,ss1.[SpecialtyMACListID]
+      ,ss1.[AdjudicatedSpecialtyBrandAWP]
+      ,ss1.[AdjudicatedSpecialtyBrandDispensingFees]
+      from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey5 = ss1.pzInsKey
+  where cp.Status = 'A'
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'B'++'Y'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'B'++'Y'
+        end as key_lookup
+      ,ss1.[SpecialtyMACListID]
+      ,ss1.[AdjudicatedSpecialtyBrandAWP]
+      ,ss1.[AdjudicatedSpecialtyBrandDispensingFees]
+      from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey6 = ss1.pzInsKey
+  where cp.Status = 'A'
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'B'++'Y'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'B'++'Y'
+        end as key_lookup
+      ,ss1.[SpecialtyMACListID]
+      ,ss1.[AdjudicatedSpecialtyBrandAWP]
+      ,ss1.[AdjudicatedSpecialtyBrandDispensingFees]
+      from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey8 = ss1.pzInsKey
+  where cp.Status = 'A'
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'B'++'Y'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'B'++'Y'
+        end as key_lookup
+      ,ss1.[SpecialtyMACListID]
+      ,ss1.[AdjudicatedSpecialtyBrandAWP]
+      ,ss1.[AdjudicatedSpecialtyBrandDispensingFees]
+      from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey9 = ss1.pzInsKey
+  where cp.Status = 'A'
+
+ union all
+  
+  SELECT distinct
+"product"."Product" AS "Product" 
+,"buy"."Channel" AS "Channel" 
+, "npp"."NPP" AS "NPP" 
+,case when "buy"."channel" = 'R' then "npp"."NPP" ++ "product"."Product"++'B'++'Y'
+when "buy"."channel" = 'M' then "npp"."npp"++'B'++'Y'
+else "npp"."NPP" end as key_column
+,case when "buy"."channel" is not null then 'buy=sell'
+else 'buy=sell' end as MacList
+,"buy"."SpecialtyNetEffectiveBrandRate" AS "SpecialtyNetEffectiveBrandRate"
+,"buy"."SpecialtyBrandDispensingFees" AS "SpecialtyBrandDispensingFees" 
+FROM IPS1P.PEGA_DATA.inge_pricing_data_priceschedule_product "PC0" 
+  INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_priceschedule_buy "buy" 
+    ON ( "PC0"."BuyPriceRefKey" = "buy"."pzInsKey") 
+  INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_npidnpp "npp" 
+    ON ( "PC0"."NPPRefKey" = "npp"."pzInsKey") 
+  INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_networkproductmeta "product" 
+    ON ("PC0"."NetworkProductRefKey" = "product"."pzInsKey") 
+  LEFT OUTER JOIN IPS1P.PEGA_DATA.inge_pricing_data_networkproduct "npid" 
+    ON ("product"."NetworkProductID" = "npid"."NetworkProductID")
+	where PC0.Status ='A'  
+  and right(left("npp"."NPP",10),1) <> 'T'
+  and right("npp"."NPP",4) <> 'TEMP'
+union all
+--Generic Non Specialty Rates and Dispensing Fees
+
+SELECT distinct
+"product"."Product" AS "Product" 
+,CASE WHEN "product"."Product" = 'S90' THEN 'M' ELSE "SELL"."CHANNEL" END AS "Channel" 
+, "npp"."NPP" AS "NPP"
+, CASE WHEN "SELL"."CHANNEL" = 'R' THEN cast("npp"."NPP" as varchar) ++ cast("product"."Product" as varchar)++'G'++'N'
+when "SELL"."CHANNEL" = 'M' then cast("npp"."NPP" as varchar)++'G'++'N'
+ELSE "npp"."NPP" end as key_lookup
+, "sell"."MACList" AS "MACList" 
+,"sell"."GenericAWPRate" AS "GenericAWPRate"
+,"sell"."GenericDispensingFees" AS "GenericDispensingFees"
+FROM IPS1P.PEGA_DATA.inge_pricing_data_priceschedule_product "PC0" 
+   INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_priceschedule_sell "sell" 
+    ON ( "PC0"."SellPriceRefKey" = "sell"."pzInsKey" ) 
+  INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_npidnpp "npp" 
+    ON ( "PC0"."NPPRefKey" = "npp"."pzInsKey") 
+  INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_networkproductmeta "product" 
+    ON ("PC0"."NetworkProductRefKey" = "product"."pzInsKey") 
+  LEFT OUTER JOIN IPS1P.PEGA_DATA.inge_pricing_data_networkproduct "npid" 
+    ON ("product"."NetworkProductID" = "npid"."NetworkProductID")
+	where PC0.Status ='A'  
+  and right(left("npp"."NPP",10),1) <> 'T'
+  and right("npp"."NPP",4) <> 'TEMP'
+
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'G'++'N'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'G'++'N'
+        end as key_lookup
+      ,ss1.[MACListID]
+      ,ss1.[AdjudicatedNonMacGenericAWP]
+      ,ss1.[AdjudicatedGenericDispensingFees] 
+     from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey1 = ss1.pzInsKey
+  where cp.Status = 'A'
+
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'G'++'N'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'G'++'N'
+        end as key_lookup
+      ,ss1.[MACListID]
+      ,ss1.[AdjudicatedNonMacGenericAWP]
+      ,ss1.[AdjudicatedGenericDispensingFees] 
+     from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey2 = ss1.pzInsKey
+  where cp.Status = 'A'
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'G'++'N'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'G'++'N'
+        end as key_lookup
+      ,ss1.[MACListID]
+      ,ss1.[AdjudicatedNonMacGenericAWP]
+      ,ss1.[AdjudicatedGenericDispensingFees] 
+     from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey3 = ss1.pzInsKey
+  where cp.Status = 'A'
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'G'++'N'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'G'++'N'
+        end as key_lookup
+      ,ss1.[MACListID]
+      ,ss1.[AdjudicatedNonMacGenericAWP]
+      ,ss1.[AdjudicatedGenericDispensingFees] 
+     from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey4 = ss1.pzInsKey
+  where cp.Status = 'A'
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'G'++'N'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'G'++'N'
+        end as key_lookup
+      ,ss1.[MACListID]
+      ,ss1.[AdjudicatedNonMacGenericAWP]
+      ,ss1.[AdjudicatedGenericDispensingFees] 
+     from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey5 = ss1.pzInsKey
+  where cp.Status = 'A'
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'G'++'N'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'G'++'N'
+        end as key_lookup
+      ,ss1.[MACListID]
+      ,ss1.[AdjudicatedNonMacGenericAWP]
+      ,ss1.[AdjudicatedGenericDispensingFees] 
+     from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey6 = ss1.pzInsKey
+  where cp.Status = 'A'
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'G'++'N'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'G'++'N'
+        end as key_lookup
+      ,ss1.[MACListID]
+      ,ss1.[AdjudicatedNonMacGenericAWP]
+      ,ss1.[AdjudicatedGenericDispensingFees] 
+     from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey8 = ss1.pzInsKey
+  where cp.Status = 'A'
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'G'++'N'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'G'++'N'
+        end as key_lookup
+      ,ss1.[MACListID]
+      ,ss1.[AdjudicatedNonMacGenericAWP]
+      ,ss1.[AdjudicatedGenericDispensingFees] 
+     from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey9 = ss1.pzInsKey
+  where cp.Status = 'A'
+
+union all
+  
+  SELECT distinct
+"product"."Product" AS "Product" 
+,"buy"."Channel" AS "Channel" 
+, "npp"."NPP" AS "NPP" 
+,case when "buy"."channel" = 'R' then "npp"."NPP" ++ "product"."Product"++'G'++'N'
+when "buy"."channel" = 'M' then "npp"."Npp"++'G'++'N'
+else "npp"."NPP" end as key_column
+,case when "buy"."channel" is not null then 'buy=sell'
+else 'buy=sell' end as MacList
+,"buy"."NetEffectiveGenericRate" AS "NetEffectiveGenericRate"
+,"buy"."GenericDispensingFees" AS "GenericDispensingFees"
+FROM IPS1P.PEGA_DATA.inge_pricing_data_priceschedule_product "PC0" 
+  INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_priceschedule_buy "buy" 
+    ON ( "PC0"."BuyPriceRefKey" = "buy"."pzInsKey") 
+  INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_npidnpp "npp" 
+    ON ( "PC0"."NPPRefKey" = "npp"."pzInsKey") 
+  INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_networkproductmeta "product" 
+    ON ("PC0"."NetworkProductRefKey" = "product"."pzInsKey") 
+  LEFT OUTER JOIN IPS1P.PEGA_DATA.inge_pricing_data_networkproduct "npid" 
+    ON ("product"."NetworkProductID" = "npid"."NetworkProductID")
+	where PC0.Status ='A'  
+  and right(left("npp"."NPP",10),1) <> 'T'
+  and right("npp"."NPP",4) <> 'TEMP'
+union all
+--Generic Specialty MAC list and rate
+SELECT distinct
+"product"."Product" AS "Product" 
+,CASE WHEN "product"."Product" = 'S90' THEN 'M' ELSE "SELL"."CHANNEL" END AS "Channel" 
+, "npp"."NPP" AS "NPP"
+, CASE WHEN "SELL"."CHANNEL" = 'R' THEN cast("npp"."NPP" as varchar) ++ cast("product"."Product" as varchar)++'G'++'Y'
+when "sell"."channel" = 'M' then cast("npp"."NPP" as varchar)++'G'++'Y'
+ELSE "npp"."NPP" end as key_lookup
+, "sell"."SpecialtyMACList" AS "SpecialtyMACList"
+,"sell"."SpecialtyGenericAWPRate" AS "SpecialtyGenericAWPRate" 
+,"sell"."SpecialtyGenericDispensingFees" AS "SpecialtyGenericDispensingFees"
+FROM IPS1P.PEGA_DATA.inge_pricing_data_priceschedule_product "PC0" 
+   INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_priceschedule_sell "sell" 
+    ON ( "PC0"."SellPriceRefKey" = "sell"."pzInsKey" ) 
+  INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_npidnpp "npp" 
+    ON ( "PC0"."NPPRefKey" = "npp"."pzInsKey") 
+  INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_networkproductmeta "product" 
+    ON ("PC0"."NetworkProductRefKey" = "product"."pzInsKey") 
+  LEFT OUTER JOIN IPS1P.PEGA_DATA.inge_pricing_data_networkproduct "npid" 
+    ON ("product"."NetworkProductID" = "npid"."NetworkProductID")
+	where PC0.Status ='A'  
+  and right(left("npp"."NPP",10),1) <> 'T'
+  and right("npp"."NPP",4) <> 'TEMP'
+  
+union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'G'++'Y'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'G'++'Y'
+        end as key_lookup
+      ,ss1.[SpecialtyMACListID]
+      ,ss1.[AdjudicatedSpecialtyNonMacGenericAWP]
+      ,ss1.[SpecialtyAdjudicatedGenericDispensingFees]
+from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey1 = ss1.pzInsKey
+  where cp.Status = 'A'
+  
+  union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'G'++'Y'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'G'++'Y'
+        end as key_lookup
+      ,ss1.[SpecialtyMACListID]
+      ,ss1.[AdjudicatedSpecialtyNonMacGenericAWP]
+      ,ss1.[SpecialtyAdjudicatedGenericDispensingFees]
+from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey2 = ss1.pzInsKey
+  where cp.Status = 'A'
+  
+  union all
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'G'++'Y'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'G'++'Y'
+        end as key_lookup
+      ,ss1.[SpecialtyMACListID]
+      ,ss1.[AdjudicatedSpecialtyNonMacGenericAWP]
+      ,ss1.[SpecialtyAdjudicatedGenericDispensingFees]
+from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey3 = ss1.pzInsKey
+  where cp.Status = 'A'
+  
+  union all
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'G'++'Y'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'G'++'Y'
+        end as key_lookup
+      ,ss1.[SpecialtyMACListID]
+      ,ss1.[AdjudicatedSpecialtyNonMacGenericAWP]
+      ,ss1.[SpecialtyAdjudicatedGenericDispensingFees]
+from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey4 = ss1.pzInsKey
+  where cp.Status = 'A'
+  
+  union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'G'++'Y'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'G'++'Y'
+        end as key_lookup
+      ,ss1.[SpecialtyMACListID]
+      ,ss1.[AdjudicatedSpecialtyNonMacGenericAWP]
+      ,ss1.[SpecialtyAdjudicatedGenericDispensingFees]
+from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey5 = ss1.pzInsKey
+  where cp.Status = 'A'
+  
+  union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'G'++'Y'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'G'++'Y'
+        end as key_lookup
+      ,ss1.[SpecialtyMACListID]
+      ,ss1.[AdjudicatedSpecialtyNonMacGenericAWP]
+      ,ss1.[SpecialtyAdjudicatedGenericDispensingFees]
+from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey6 = ss1.pzInsKey
+  where cp.Status = 'A'
+  
+  union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'G'++'Y'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'G'++'Y'
+        end as key_lookup
+      ,ss1.[SpecialtyMACListID]
+      ,ss1.[AdjudicatedSpecialtyNonMacGenericAWP]
+      ,ss1.[SpecialtyAdjudicatedGenericDispensingFees]
+from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey8 = ss1.pzInsKey
+  where cp.Status = 'A'
+  
+  union all
+
+SELECT distinct ss1.Product
+      , ss1.Channel
+      , case when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'R' then sc.NPP4
+        when ss1.channel = 'm' then sc.NPP5
+        end as NPP
+      , case when ss1.channel = 'R' then sc.NPP4 ++ ss1.Product++'G'++'Y'
+        when ss1.channel = 'S' then sc.NPP6
+        when ss1.channel = 'M' then sc.NPP5++'G'++'Y'
+        end as key_lookup
+      ,ss1.[SpecialtyMACListID]
+      ,ss1.[AdjudicatedSpecialtyNonMacGenericAWP]
+      ,ss1.[SpecialtyAdjudicatedGenericDispensingFees]
+from IPS1P.PEGA_DATA.inge_pricing_data_cagdecision "two" WITH(NOLOCK)
+                 INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagfeed "three"
+         ON ("three"."pzInsKey" = "two"."CAGRefKey")
+              INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_cagprice "cp"
+         ON ("two"."pzInsKey" = "cp"."CAGDecisionRefKey")
+  inner join [IPS1P].[PEGA_DATA].[inge_pricing_data_SellCrossRef] sc
+  on  sc.PriceKey = cp.pzInsKey 
+  left join  [IPS1P].[PEGA_DATA].[inge_pricing_data_sellside] ss1
+  on sc.ProdKey9 = ss1.pzInsKey
+  where cp.Status = 'A'
+  
+  union all
+
+SELECT distinct
+"product"."Product" AS "Product" 
+,"buy"."Channel" AS "Channel" 
+, "npp"."NPP" AS "NPP" 
+,case when "buy"."channel" = 'R' then "npp"."NPP" ++ "product"."Product"++'G'++'Y'
+when "Buy"."Channel"='M' then "npp"."npp"++'G'++'Y'
+else "npp"."NPP" end as key_column
+,case when "buy"."channel" is not null then 'buy=sell'
+else 'buy=sell' end as SpecialtyMacList
+,"buy"."SpecialtyNetEffectiveGenericRate" AS "SpecialtyNetEffectiveGenericRate"
+,"buy"."SpecialtyGenericDispensingFees" AS "SpecialtyGenericDispensingFees"
+FROM IPS1P.PEGA_DATA.inge_pricing_data_priceschedule_product "PC0" 
+  INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_priceschedule_buy "buy" 
+    ON ( "PC0"."BuyPriceRefKey" = "buy"."pzInsKey") 
+  INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_npidnpp "npp" 
+    ON ( "PC0"."NPPRefKey" = "npp"."pzInsKey") 
+  INNER JOIN IPS1P.PEGA_DATA.inge_pricing_data_networkproductmeta "product" 
+    ON ("PC0"."NetworkProductRefKey" = "product"."pzInsKey") 
+  LEFT OUTER JOIN IPS1P.PEGA_DATA.inge_pricing_data_networkproduct "npid" 
+    ON ("product"."NetworkProductID" = "npid"."NetworkProductID")
+	where PC0.Status ='A'  
+  and right(left("npp"."NPP",10),1) <> 'T'
+  and right("npp"."NPP",4) <> 'TEMP')
+  select p.product, p.channel,p.npp ,p.key_lookup,p.maclist,left(abs(p.awprate/100),6) as awprate,left(abs(p.dispensingfees),6) as disp
+  ,case when len(p.maclist) = 10 and right(p.maclist,7) in ('7008491','7004691','7006091','7016091','7014691') then right(p.maclist,7)++'R'
+  when len(p.maclist) = 10 and right(p.maclist,7) in ('7008495','7004695','7006095','7004695','7016095','7014695') then right(p.maclist,7)++'M'
+  when len(p.maclist) = 9 and right(p.key_lookup,1)='Y' then right(p.maclist,6)++'S'
+  when len(p.maclist) = 10 and right(p.key_lookup,1)='Y' then right(p.maclist,7)++'S'
+  when len(p.maclist) = 9 and p.product = 'MAINTENANCE CHOICE' then right(p.maclist,6)++'M'
+  when len(p.maclist) = 10 and p.product = 'MAINTENANCE CHOICE' then right(p.maclist,7)++'M'
+  when len(p.maclist) = 9 then right(p.maclist,6)++p.channel
+  when len(p.maclist) = 10 then right(p.maclist,7)++p.channel end as vcml_crosswalk
+  from pricing p
+  where p.maclist <> 'buy=sell'
+  and p.npp is not null
+  order by p.maclist desc""")
+datapull2=cursor1.fetchall()
+column_names2 = [i[0] for i in cursor1.description]
+ipsrates=pd.DataFrame(datapull2,columns=column_names2,dtype=str )
+ipsrates.to_csv('C:/Users/ag06050/Documents/CLMFLS/ipsrates.txt',sep=',',index=False)
+
+while list_length >= 0:
+###SQL Query for PHARM
+    datapull=cursor.execute(
+    """with claims as (select clm.acct_id, clm.grp_nbr, clm.MSTR_CARR_NBR,
+    case when CLM.MSTR_CARR_NBR = '8302' Then 'IN'
+    when CLM.MSTR_CARR_NBR = '8303' then 'KY'
+    when CLM.MSTR_CARR_NBR = '8304' then 'MO'
+    when CLM.MSTR_CARR_NBR = '8305' then 'OH'
+    when CLM.MSTR_CARR_NBR = '8306' then 'WI'
+    when CLM.MSTR_CARR_NBR = '8307' then 'CT'
+    when clm.MSTR_CARR_NBR = '8309' then 'NH'
+    when clm.MSTR_CARR_NBR = '8310' then 'VA'
+    when clm.MSTR_CARR_NBR = '8311' then 'GA'
+    when clm.MSTR_CARR_NBR = '8312' then 'NY'
+    when clm.MSTR_CARR_NBR = '8313' then 'CO'
+    when clm.MSTR_CARR_NBR = '8314' then 'NV'
+    when clm.MSTR_CARR_NBR = '8315' then 'CA'
+    when clm.MSTR_CARR_NBR = '8308' then 'ME'
+    when CLM.MSTR_CARR_NBR = '8317' then 'WI'
+    when clm.MSTR_CARR_NBR = '8318' then 'COVA'
+    when clm.MSTR_CARR_NBR = '8316' then 'UNICARE'
+    end as LOB_State
+    ,case when clm.PHRMCY_NBR in ('0326911','1240782','1473898','1486516','3980958','4583034') then 'MAIL'
+    when clm.PHRMCY_NBR in ('3137141','3195268','3195333','3431397','0591796','0722581','1075224','1153852','1158422','1203417','1466033','1480019','1492975','1715830','2132924','2228535','2353542','2374584','2429113','2590215','3958898','3994844','4026325','4429216','4439875','5131228') then 'Specialty'
+    else 'retail'
+    end as del_channel
+    ,clm.PHRMCY_NBR
+    ,c2.NTWK_ID
+    ,clm.SPCLTY_RX_DRUG_IND
+    ,case when clm.GNRC_CD = 'y'  or c2.daw_cd in (3,4,5,6,9) then 'G' else 'B' 
+    end as brand_indicator
+    ,clm.GNRC_CD
+    ,clm.DRUG_TYPE_CD
+    ,c2.DAW_CD
+    ,c2.ADJDCTD_GPI
+    ,c2.NDC
+    ,ndc.LBL_NM
+    ,c2.PAID_SRVC_UNIT_CNT
+    ,c2.DAYS_SPLY_NBR
+    ,c2.DRUG_AWP_AMT
+    ,c2.UCR_AMT
+    ,clm.CLNT_INGRED_COST_PAID_AMT
+    ,clm.CLNT_DSPNSG_FEE_PAID_AMT
+    ,clm.MAC_UNIT_PRC_AMT
+    ,clm.INGRED_COST_SBMTD_AMT
+    ,clm.INRX_INGRED_COST_AMT
+    ,clm.INRX_DSPNSG_FEE_AMT
+    ,case when clm.BSIS_OF_COST_DTRMNTN_CD = '04' or C2.UCR_AMT = CLM.CLNT_INGRED_COST_PAID_AMT THEN 'U&C' 
+    when CLM.BSIS_OF_REIMBMNT_DTRMNTN_CD = '06' THEN 'MAC'
+    WHEN CLM.BSIS_OF_REIMBMNT_DTRMNTN_CD = '07' THEN 'RDCDMAC'
+    WHEN CLM.BSIS_OF_REIMBMNT_DTRMNTN_CD = '03' THEN 'AWP'
+    When CLM.BSIS_OF_REIMBMNT_DTRMNTN_CD = '01' THEN 'IGPAS'
+    WHEN CLM.BSIS_OF_REIMBMNT_DTRMNTN_CD = '00' THEN 'NONSPEC'
+    WHEN CLM.BSIS_OF_REIMBMNT_DTRMNTN_CD = '08' THEN 'CNTRCTPRCNG'
+    end as basis_of_cost
+    ,clm.FILLED_DT
+    ,clm.NTWK_PRCG_PRFL_TXT
+    ,case when c3.R_NTWK_CNTRCT ='S90' then c3.R_NTWK_CNTRCT
+    when c3.R_NTWK_CNTRCT = 'RXC' THEN 'RXCHOICE'
+    when c3.R_NTWK_CNTRCT = 'RXC EDS' then 'RXCHOICE EDS'
+    when c3.R_NTWK_CNTRCT = 'MCHC' THEN 'MAINTENANCE CHOICE'
+    WHEN c3.R_NTWK_CNTRCT in ('NAT', 'NAT EDS') AND c2.DAYS_SPLY_NBR <= 30 THEN 'NATIONAL'
+    WHEN c3.R_NTWK_CNTRCT IN ('NAT', 'NAT EDS') AND c2.DAYS_SPLY_NBR >= 31 THEN 'EDS'
+    ELSE c3.R_NTWK_CNTRCT
+    END AS Product_Logic
+    ,clm.PHRMCY_CLM_ID
+    from rcn.RCN_FACT_LZ_CLM clm
+    left join rcn.rcn_FACT_EDW_CLM c2
+    on clm.CLM_ADJSTMNT_KEY = c2.CLM_ADJSTMNT_KEY
+    left join rcn.RCN_FACT_EXA_BR_GLBL c3
+    on c2.CLM_ADJSTMNT_KEY = c3.CLM_ADJSTMNT_KEY
+    left join wps_ref.WPS_NDC_DFNTN ndc on
+    c2.NDC = ndc.NDC
+    where clm.CLM_SOR_CD = '512'
+    and clm.filled_dt between '2019-07-01' and '2019-07-15'
+    and left(clm.MSTR_CARR_NBR,2) = '83')
+    select *
+    ,rtrim(case when c.product_logic = 'MAIL' THEN c.ntwk_prcg_prfl_txt++c.brand_indicator++'N'
+    when c.product_logic = 'S90' AND c.spclty_rx_drug_ind = 'Y' THEN c.ntwk_prcg_prfl_txt ++'NATIONAL'++C.BRAND_INDICATOR++'Y'
+    when c.product_logic = 'RXCHOICE' AND c.spclty_rx_drug_ind = 'Y' THEN c.ntwk_prcg_prfl_txt ++'NATIONAL'++C.BRAND_INDICATOR++'Y'
+    when c.product_logic = 'RXCHOICE EDS' AND c.spclty_rx_drug_ind = 'Y' THEN c.ntwk_prcg_prfl_txt ++'NATIONAL'++C.BRAND_INDICATOR++'Y'
+    when c.product_logic = 'MAINTENANCE CHOICE' AND c.spclty_rx_drug_ind = 'Y' THEN c.ntwk_prcg_prfl_txt ++'NATIONAL'++C.BRAND_INDICATOR++'Y'
+    else c.ntwk_prcg_prfl_txt ++ c.product_logic++c.brand_indicator++c.spclty_rx_drug_ind end) as pricingkey
+    ,c.grp_nbr ++ c.ntwk_prcg_prfl_txt as npidkey
+    ,c.Product_Logic ++ c.ndc as fi_ndc_key
+    ,c.Product_Logic ++ c.ADJDCTD_GPI as fi_gpi_key
+    from claims c
+    where c.MSTR_CARR_NBR = ?
+    and c.product_logic in ('EDS','NATIONAL','MAIL','RXCHOICE EDS','MAINTENANCE CHOICE','RXCHOICE','S90')""", (carriers[list_length],))
+    ##Retrieve Data from Cursor    
+    datapull=cursor.fetchall()
+    ##Create list for dataframe columns
+    column_names = [i[0] for i in cursor.description]
+    ##Create dataframe from PHARM Data
+    df=pd.DataFrame(datapull, columns=column_names, dtype=str)
+    ##File path to automate data export
+    filepath= os.path.join('C:/Users/ag06050/Documents/CLMFLS',carriers[list_length] + '.txt')
+    ##write data to CSV for each Carrier
+    df.to_csv(filepath,encoding='utf-8',sep=',',na_rep='N/A',index=False)
+    ##Close cursor
+    cursor.close()
+    ##Shorten List length to execute next query
+    list_length = list_length - 1
+
+carriers = ['8302','8303','8304','8305','8306','8307','8309','8310','8311','8312','8313','8314','8315','8308','8317','8318']      
+
+def file_merger_sell(div):
+    ##file path to output merges by carrier
+    filepath= os.path.join('C:/Users/ag06050/Documents/CLMFLS',div + '.txt')
+    ##read CSV/Text for data frames
+    utilization = pd.read_csv(filepath, sep =',',header=0,dtype='str')
+    pricing = pd.read_csv('C:/Users/ag06050/Documents/CLMFLS/ipsrates.txt', sep =',',header=0,dtype='str')
+    buy = pd.read_csv('C:/Users/ag06050/Documents/CLMFLS/buy_rates.csv', sep =',',header=0,dtype='str')
+    vcml=pd.read_csv('C:/Users/ag06050/Documents/CLMFLS/mac_crosswalk.csv', sep =',',header=0,dtype='str')
+    mac=pd.read_csv('C:/Users/ag06050/Documents/CLMFLS/ALL_MAC.txt', sep='\t',header=0,dtype='str')
+    npid=pd.read_csv('C:/Users/ag06050/Documents/CLMFLS/npid.txt',sep='\t',header=0,dtype='str')
+    tinted_mac=pd.read_excel('C:/Users/ag06050/Documents/CLMFLS/tinted_mac.xlsx', sheet_name='Sheet1')
+    ##Dataframe for each price component
+    npiddf=pd.DataFrame(npid)
+    macdf=pd.DataFrame(mac)
+    vcmldf=pd.DataFrame(vcml)
+    utilizationdf= pd.DataFrame(utilization)
+    pricingdf=pd.DataFrame(pricing)
+    buydf=pd.DataFrame(buy)
+    tinted_macdf=pd.DataFrame(tinted_mac)
+    ##attach npid to utilization fact check CVS is checking client NPPS
+    npid_utilization = pd.merge(utilizationdf, npiddf,how='left', left_on=['npidkey'], right_on=['NPID_KEY'])
+    ##attach brand and generic AWP rates and VCML Crosswalks to claims
+    pricing_utilization = pd.merge(npid_utilization,pricingdf,how='left', left_on=['pricingkey'], right_on=['key_lookup'])
+    ##attach buy side rates to identify pass through, buy=sell groups, and tinted
+    pricing_buy_utilization=pd.merge(pricing_utilization,buydf,how='left',left_on=['pricingkey'],right_on=['key_lookupbuy1'])
+    ##Crosswalk VCMLs and obtain client mac list and assigned scale factor by product
+    pricing_buy_vcml_utilization=pd.merge(pricing_buy_utilization,vcmldf,how='left',left_on=['vcml_crosswalk'],right_on=['VCML_KEY'])
+    ##create column by concatenating maclist and gpi to crosswalk mac unit price
+    pricing_buy_vcml_utilization['Mac_unit_GPIkey'] = pricing_buy_vcml_utilization['MAC_LIST'] + pricing_buy_vcml_utilization['ADJDCTD_GPI']
+    ##create column by concatenating maclist and ndc to crosswalk mac unit price
+    pricing_buy_vcml_utilization['Mac_unit_NDCkey'] = pricing_buy_vcml_utilization['MAC_LIST'] + pricing_buy_vcml_utilization['NDC']
+    ##merge MAC unit cost with crosswalk mac key
+    pricing_buy_vcml_utilization_mac=pd.merge(pricing_buy_vcml_utilization, macdf, how='left',left_on=['Mac_unit_GPIkey'],right_on=['unit_cost_key'])
+    ##identify groups that are on tinted MAC schedule
+    tinted_mac=pd.merge(pricing_buy_vcml_utilization_mac,tinted_macdf, how='left',left_on=['acct_id'],right_on=['Account Number'])
+    ##create column to crosswalk tinted MAC unit costs
+    tinted_mac['tinted_mac_key']=tinted_mac['tinted_mac'] + tinted_mac['ADJDCTD_GPI']
+    #attach tinted unit costs
+    tinted_mac_unit=pd.merge(tinted_mac,macdf,how='left',left_on=['tinted_mac_key'],right_on=['unit_cost_key'])
+    #drop unecessary columns for analysis
+    tinted_mac_unit.drop(columns=['tinted_mac_key','Mac_unit_GPIkey','VCML_KEY','vcml_crosswalk','key_lookupbuy1','pricingkey','npidkey','NPID_KEY','key_lookup','Account Number'])
+    ##output utilization by carrier
+    tinted_mac_unit.to_csv(filepath, encoding='utf-8',sep=',')
+    
+    
+for carrier in carriers:
+    file_merger_sell(carrier)
+     
+##Signal the program has completed    
+print("done")
+
+
+
+
+    
+    
+    
+    
